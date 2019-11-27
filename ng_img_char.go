@@ -3,7 +3,8 @@ package base64Captcha
 import (
 	"bytes"
 	"fmt"
-	"github.com/golang/freetype"
+	"github.com/golang/freetype"	
+	"github.com/golang/freetype/truetype"
 	"golang.org/x/image/font"
 	"image"
 	"image/color"
@@ -16,6 +17,7 @@ import (
 )
 
 var trueTypeFontFamilys = readFontsToSliceOfTrueTypeFonts()
+var cjkFontFamilys = readCJKFonts()
 
 //CaptchaImageChar captcha-engine-char return type.
 type CaptchaImageChar struct {
@@ -32,7 +34,13 @@ type ConfigCharacter struct {
 	// Width Captcha png width in pixel.
 	// 图像验证码的宽度像素
 	Width int
-	//Mode : base64captcha.CaptchaModeNumber=0, base64captcha.CaptchaModeAlphabet=1, base64captcha.CaptchaModeArithmetic=2, base64captcha.CaptchaModeNumberAlphabet=3.
+	//Mode : 
+	//    base64captcha.CaptchaModeNumber=0, 
+	//    base64captcha.CaptchaModeAlphabet=1, 
+	//    base64captcha.CaptchaModeArithmetic=2, 
+	//    base64captcha.CaptchaModeNumberAlphabet=3,  
+	//    base64captcha.CaptchaModeChinese=4,
+	//    base64captcha.CaptchaModeUseRunePairs=5
 	Mode int
 	//IsUseSimpleFont is use simply font(...base64Captcha/fonts/RitaSmith.ttf).
 	IsUseSimpleFont bool
@@ -50,6 +58,13 @@ type ConfigCharacter struct {
 	IsShowSlimeLine bool
 	//IsShowSineLine is show sine line.
 	IsShowSineLine bool
+
+	//CaptchaRunePairs make a list of rune for Chaptcha random selection.
+	// 随机字符串可选内容
+	CaptchaRunePairs [][]rune
+	//UseCJKFonts: ask if shell uses CJKFonts (now includeing 文泉驿微米黑)
+	// 是否使用CJK字体
+	UseCJKFonts bool
 
 	// CaptchaLen Default number of digits in captcha solution.
 	// 默认数字验证长度6.
@@ -286,7 +301,7 @@ func (captcha *CaptchaImageChar) drawTextNoise(complex int, isSimpleFont bool) e
 		if isSimpleFont {
 			c.SetFont(trueTypeFontFamilys[0])
 		} else {
-			f := randFontFamily()
+			f := randFontFamily(trueTypeFontFamilys)
 			c.SetFont(f)
 		}
 
@@ -299,8 +314,20 @@ func (captcha *CaptchaImageChar) drawTextNoise(complex int, isSimpleFont bool) e
 	return nil
 }
 
-//drawText draw captcha string to image.把文字写入图像验证码
 func (captcha *CaptchaImageChar) drawText(text string, isSimpleFont bool) error {
+	var targetFont *truetype.Font
+	if isSimpleFont {
+		targetFont = trueTypeFontFamilys[0]
+	} else {
+		targetFont = randFontFamily(trueTypeFontFamilys)
+	}
+	
+	return captcha.drawTextWithFontFamily(text, targetFont)
+}
+
+
+//drawText draw captcha string to image.把文字写入图像验证码
+func (captcha *CaptchaImageChar) drawTextWithFontFamily(text string,  useFont *truetype.Font) error {
 	c := freetype.NewContext()
 	c.SetDPI(imageStringDpi)
 
@@ -316,13 +343,7 @@ func (captcha *CaptchaImageChar) drawText(text string, isSimpleFont bool) error 
 
 		c.SetSrc(image.NewUniform(randDeepColor()))
 		c.SetFontSize(fontSize)
-
-		if isSimpleFont {
-			c.SetFont(trueTypeFontFamilys[0])
-		} else {
-			f := randFontFamily()
-			c.SetFont(f)
-		}
+		c.SetFont(useFont)
 
 		x := int(fontWidth)*i + int(fontWidth)/int(fontSize)
 
@@ -385,12 +406,48 @@ func EngineCharCreate(config ConfigCharacter) *CaptchaImageChar {
 	case CaptchaModeNumber:
 		captchaContent = randText(config.CaptchaLen, TxtNumbers)
 		captchaImage.VerifyValue = captchaContent
+
+	//随机中文字符串
+	case CaptchaModeChinese:
+		if !config.UseCJKFonts {
+			panic("shell use cjk fonts in CaptchaModeChinese")
+		}
+		captchaContent = randText(config.CaptchaLen, TxtChineseCharaters)
+		captchaImage.VerifyValue = captchaContent
+	case CaptchaModeUseRunePairs:
+		target_runes := []rune{}
+		for len(target_runes) < config.CaptchaLen {
+			ftarget := randRuneArrayNext(config.CaptchaRunePairs)
+			icut := config.CaptchaLen-len(target_runes)
+			if icut > len(ftarget) {
+				icut = len(ftarget)
+			}
+			target_runes=append(target_runes, ftarget[0:icut]...)
+		}
+		captchaContent = string(target_runes)
+		print("len?=",config.CaptchaLen," val=",captchaContent, "===", len(captchaContent) < config.CaptchaLen ,"\n")
+
+		captchaImage.VerifyValue = captchaContent
 	default:
 		captchaContent = randText(config.CaptchaLen, TxtSimpleCharaters)
 		captchaImage.VerifyValue = captchaContent
 	}
+
 	//写入string
-	captchaImage.drawText(captchaContent, config.IsUseSimpleFont)
+	if config.UseCJKFonts {
+		if len(cjkFontFamilys) == 0 {
+			panic("no cjk Fonts found")
+		}
+		targetFont := cjkFontFamilys[0]
+
+		if !config.IsUseSimpleFont {
+			targetFont= randFontFamily(cjkFontFamilys)
+		}
+		captchaImage.drawTextWithFontFamily(captchaContent, targetFont)
+	} else {
+		captchaImage.drawText(captchaContent, config.IsUseSimpleFont)
+	}
+	
 	captchaImage.Content = captchaContent
 	//captchaImage.drawText(randText(4))
 

@@ -10,13 +10,21 @@ import (
 
 //randText create random text. 生成随机文本.
 func randText(num int, sourceChars string) string {
-	textNum := len(sourceChars)
+	itemrunes := []rune(sourceChars)
+	textNum := len(itemrunes)
+
 	text := ""
 	r := randSeed()
 	for i := 0; i < num; i++ {
-		text = text + string(sourceChars[r.Intn(textNum)])
+		text = text + string(itemrunes[r.Intn(textNum)])
 	}
 	return text
+}
+
+func randRuneArrayNext(input [][]rune) []rune {
+	r := randSeed()
+	i := r.Intn(len(input))
+	return input[i]
 }
 
 //RandArithmetic create random arithmetic equation and result.
